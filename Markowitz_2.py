@@ -33,7 +33,8 @@ assets = [
 # Initialize Bdf and df
 Bdf = pd.DataFrame()
 for asset in assets:
-    raw = yf.download(asset, start="2012-01-01", end="2024-04-01", auto_adjust = False)
+    raw = yf.download(asset, start="2012-01-01",
+                      end="2024-04-01", auto_adjust=False)
     Bdf[asset] = raw['Adj Close']
 
 df = Bdf.loc["2019-01-01":"2024-04-01"]
@@ -50,7 +51,7 @@ class MyPortfolio:
     NOTE: You can modify the initialization function
     """
 
-    def __init__(self, price, exclude, lookback=50, gamma=0):
+    def __init__(self, price, exclude, lookback=60, gamma=1):
         self.price = price
         self.returns = price.pct_change().fillna(0)
         self.exclude = exclude
@@ -69,6 +70,31 @@ class MyPortfolio:
         """
         TODO: Complete Task 4 Below
         """
+
+        self.portfolio_weights.loc[:, :] = 0
+
+        mu = self.returns[assets].mean().values
+        cov = self.returns[assets].cov().values
+
+        m = gp.Model("Portfolio Optimization")
+        m.setParam("OutputFlag", 0)
+
+        w = m.addMVar(
+            shape=len(assets),
+            name="weights",
+            lb=0,
+            ub=1,
+        )
+
+        m.setObjective(mu @ w - (1/2) * self.gamma *
+                       (w @ cov @ w), gp.GRB.MAXIMIZE)
+        m.addConstr(w.sum() == 1, name="weights_sum")
+
+        m.optimize()
+
+        optimal_weights = w.X
+        for i, asset in enumerate(assets):
+            self.portfolio_weights[asset] = optimal_weights[i]
 
         """
         TODO: Complete Task 4 Above
@@ -116,7 +142,8 @@ class AssignmentJudge:
         _, ax = plt.subplots()
         returns = price.pct_change().fillna(0)
         (1 + returns["SPY"]).cumprod().plot(ax=ax, label="SPY")
-        (1 + strategy[1]["Portfolio"]).cumprod().plot(ax=ax, label=f"MyPortfolio")
+        (1 + strategy[1]["Portfolio"]
+         ).cumprod().plot(ax=ax, label=f"MyPortfolio")
 
         ax.set_title("Cumulative Returns")
         ax.set_xlabel("Date")

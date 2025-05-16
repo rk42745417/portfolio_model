@@ -36,7 +36,7 @@ end = "2024-04-01"
 # Initialize df and df_returns
 df = pd.DataFrame()
 for asset in assets:
-    raw = yf.download(asset, start=start, end=end, auto_adjust = False)
+    raw = yf.download(asset, start=start, end=end, auto_adjust=False)
     df[asset] = raw['Adj Close']
 
 df_returns = df.pct_change().fillna(0)
@@ -56,11 +56,15 @@ class EqualWeightPortfolio:
     def calculate_weights(self):
         # Get the assets by excluding the specified column
         assets = df.columns[df.columns != self.exclude]
-        self.portfolio_weights = pd.DataFrame(index=df.index, columns=df.columns)
+        self.portfolio_weights = pd.DataFrame(
+            index=df.index, columns=df.columns)
 
         """
         TODO: Complete Task 1 Below
         """
+
+        for i in range(len(df)):
+            self.portfolio_weights.loc[df.index[i], assets] = 1 / len(assets)
 
         """
         TODO: Complete Task 1 Above
@@ -107,11 +111,35 @@ class RiskParityPortfolio:
         assets = df.columns[df.columns != self.exclude]
 
         # Calculate the portfolio weights
-        self.portfolio_weights = pd.DataFrame(index=df.index, columns=df.columns)
+        self.portfolio_weights = pd.DataFrame(
+            index=df.index, columns=df.columns)
 
         """
         TODO: Complete Task 2 Below
         """
+
+        for i in range(self.lookback + 1, len(df)):
+            window_returns = df_returns[assets].iloc[i -
+                                                     self.lookback: i]
+
+            stds = window_returns.std().dropna()
+            valid_stds = stds[stds != 0]
+
+            current_weights = pd.Series(0.0, index=assets)
+            if not valid_stds.empty:
+                inv_stds = 1 / valid_stds
+                total_inv_std = inv_stds.sum()
+
+                if total_inv_std != 0:
+                    current_weights[valid_stds.index] = inv_stds / \
+                        total_inv_std
+                else:
+                    current_weights[valid_stds.index] = 1 / len(valid_stds)
+            else:
+                current_weights = pd.Series(1 / len(assets), index=assets)
+
+            self.portfolio_weights.loc[df.index[i],
+                                       assets] = current_weights
 
         """
         TODO: Complete Task 2 Above
@@ -160,10 +188,11 @@ class MeanVariancePortfolio:
         assets = df.columns[df.columns != self.exclude]
 
         # Calculate the portfolio weights
-        self.portfolio_weights = pd.DataFrame(index=df.index, columns=df.columns)
+        self.portfolio_weights = pd.DataFrame(
+            index=df.index, columns=df.columns)
 
         for i in range(self.lookback + 1, len(df)):
-            R_n = df_returns.copy()[assets].iloc[i - self.lookback : i]
+            R_n = df_returns.copy()[assets].iloc[i - self.lookback: i]
             self.portfolio_weights.loc[df.index[i], assets] = self.mv_opt(
                 R_n, self.gamma
             )
@@ -185,10 +214,11 @@ class MeanVariancePortfolio:
                 TODO: Complete Task 3 Below
                 """
 
-                # Sample Code: Initialize Decision w and the Objective
-                # NOTE: You can modify the following code
-                w = model.addMVar(n, name="w", ub=1)
-                model.setObjective(w.sum(), gp.GRB.MAXIMIZE)
+                w = model.addMVar(n, name="w", ub=1.0, lb=0.0)
+                model.setObjective(mu @ w - (1/2) * gamma *
+                                   (w @ Sigma @ w), gp.GRB.MAXIMIZE)
+
+                model.addConstr(w.sum() == 1)
 
                 """
                 TODO: Complete Task 3 Above
@@ -255,7 +285,8 @@ class Helper:
             MeanVariancePortfolio("SPY").get_results(),
             MeanVariancePortfolio("SPY", gamma=100).get_results(),
             MeanVariancePortfolio("SPY", lookback=100).get_results(),
-            MeanVariancePortfolio("SPY", lookback=100, gamma=100).get_results(),
+            MeanVariancePortfolio("SPY", lookback=100,
+                                  gamma=100).get_results(),
         ]
 
     def plot_performance(self, strategy_list=None):
@@ -263,8 +294,10 @@ class Helper:
         _, ax = plt.subplots()
 
         (1 + df_returns["SPY"]).cumprod().plot(ax=ax, label="SPY")
-        (1 + self.eqw[1]["Portfolio"]).cumprod().plot(ax=ax, label="equal_weight")
-        (1 + self.rp[1]["Portfolio"]).cumprod().plot(ax=ax, label="risk_parity")
+        (1 + self.eqw[1]["Portfolio"]
+         ).cumprod().plot(ax=ax, label="equal_weight")
+        (1 + self.rp[1]["Portfolio"]
+         ).cumprod().plot(ax=ax, label="risk_parity")
 
         if strategy_list != None:
             for i, strategy in enumerate(strategy_list):
@@ -346,7 +379,8 @@ class AssignmentJudge:
             MeanVariancePortfolio("SPY").get_results()[0],
             MeanVariancePortfolio("SPY", gamma=100).get_results()[0],
             MeanVariancePortfolio("SPY", lookback=100).get_results()[0],
-            MeanVariancePortfolio("SPY", lookback=100, gamma=100).get_results()[0],
+            MeanVariancePortfolio("SPY", lookback=100,
+                                  gamma=100).get_results()[0],
         ]
 
     def check_dataframe_similarity(self, df1, df2, tolerance=0.01):
@@ -364,6 +398,12 @@ class AssignmentJudge:
                 df1[column].dtype.kind in "bifc" and df2[column].dtype.kind in "bifc"
             ):  # Check only numeric types
                 if not np.isclose(df1[column], df2[column], atol=tolerance).all():
+                    # date = (df1[column] - df2[column]).abs().argmax()
+                    # print(
+                    #     f"Difference in column '{column}' on date {df1.index[date]}({date}): {df1[column][date]} vs {df2[column][date]}"
+                    # )
+                    # print(df1[column].head(date + 1).to_string())
+                    # print(df2[column].head(date + 1).to_string())
                     return False
             else:
                 if not (df1[column] == df2[column]).all():
@@ -373,7 +413,8 @@ class AssignmentJudge:
 
     def compare_dataframe_list(self, std_ans_list, ans_list, tolerance=0.01):
         if len(std_ans_list) != len(ans_list):
-            raise ValueError("Both lists must have the same number of DataFrames.")
+            raise ValueError(
+                "Both lists must have the same number of DataFrames.")
 
         results = []
         for df1, df2 in zip(std_ans_list, ans_list):
